@@ -31,7 +31,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install telethon tzdata
+        run: pip install telethon tzdata requests
 
       - name: Restore session
         env:
