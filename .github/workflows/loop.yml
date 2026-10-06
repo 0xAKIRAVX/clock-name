@@ -1,0 +1,54 @@
+name: ClockName Loop
+
+on:
+  schedule:
+    - cron: "0 */4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: clockname-loop
+  cancel-in-progress: false
+
+jobs:
+  loop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 245
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure git (for state commits)
+        run: |
+          git config user.name "clockname-bot"
+          git config user.email "actions@users.noreply.github.com"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install telethon tzdata
+
+      - name: Restore session
+        env:
+          TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
+        run: printf '%s' "$TELEGRAM_SESSION" | tr -d ' \n\r\t' | base64 -d > clockname_session.session
+
+      - name: Run clock loop (every minute + control bot)
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          LOOP_MINUTES: "238"
+          GH_STATE: "yes"
+        run: python ClockName.py --loop
+
+      - name: Heartbeat (keeps repository active)
+        if: always()
+        run: |
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .heartbeat
+          git add .heartbeat
+          git commit -m "tick" || echo "nothing to commit"
+          git push || echo "push skipped"
