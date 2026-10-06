@@ -4,7 +4,8 @@
   "timezone": "Asia/Tehran",
   "format": "｜ {hhm}:{mmm}",
   "interval_minutes": 1,
-  "max_daily_changes": 800,
+  "max_daily_changes": 1500,
   "notify_saved_messages": false,
-  "restore_on_exit": true
+  "restore_on_exit": false,
+  "owner_chat_id": 8913976432
 }
