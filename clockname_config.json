@@ -1,0 +1,10 @@
+{
+  "api_id": 17349,
+  "api_hash": "344583e45741c457fe1862106095a5eb",
+  "timezone": "Asia/Tehran",
+  "format": "｜ {hhm}:{mmm}",
+  "interval_minutes": 1,
+  "max_daily_changes": 800,
+  "notify_saved_messages": false,
+  "restore_on_exit": true
+}
