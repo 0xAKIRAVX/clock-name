@@ -366,6 +366,7 @@ async def run_loop() -> None:
 
         elif low == "/status":
             tz_now = state.get("tz") or cfg.get("timezone") or ""
+            conn = "برقرار ✅" if client.is_connected() else "قطع ❌ (بازاتصال خودکار…)"
             txt = (
                 "⏰ وضعیت ClockName\n"
                 f"وضعیت: {'متوقف ⏸' if state.get('paused') else 'فعال ✅'}\n"
@@ -374,6 +375,7 @@ async def run_loop() -> None:
                 f"فرمت: {state.get('format') or cfg.get('format')}\n"
                 f"منطقهٔ زمانی: {tz_now}\n"
                 f"تغییرات امروز: {state.get('count', 0)}\n"
+                f"اتصال تلگرام: {conn}\n"
                 f"محل اجرا: {'GitHub Actions' if in_gh else 'سیستم شخصی/Termux'}"
             )
             await bot_send(txt)
@@ -520,8 +522,22 @@ async def run_loop() -> None:
                 flood_until = make_now(tz) + timedelta(seconds=wait)
                 print(f"⚠️ FLOOD_WAIT {e.seconds}s — {wait}s استراحت", flush=True)
                 await bot_send(f"⚠️ تلگرام FLOOD_WAIT {e.seconds}s داد؛ ساعت موقتاً می‌ایستد و خودکار ادامه می‌دهد.")
+            except errors.AuthKeyDuplicatedError:
+                await bot_send("🚨 session تلگرام باطل شد (استفادهٔ همزمان از دو جا). ساعت ایستاد — به سازنده پیام بده.")
+                print("🚨 AUTH_KEY_DUPLICATED — خروج", flush=True)
+                stop.set()
+                break
             except Exception as e:
-                print("❌", e, flush=True)
+                print("❌", type(e).__name__, e, flush=True)
+                try:
+                    if not client.is_connected():
+                        await client.disconnect()
+                        await asyncio.sleep(2)
+                        await client.connect()
+                        print("🔄 بازاتصال انجام شد", flush=True)
+                        await bot_send("🔄 اتصال تلگرام قطع شده بود؛ خودکار وصل شدم و ساعت ادامه می‌یابد.")
+                except Exception as re:
+                    print("reconnect failed:", re, flush=True)
                 await asyncio.sleep(20)
 
     async def deadline_task():
