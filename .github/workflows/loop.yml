@@ -57,6 +57,7 @@ jobs:
           fi
 
       - name: Run clock loop (every minute + control bot)
+        id: loop
         if: steps.fresh.outputs.skip != 'true'
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
@@ -73,7 +74,7 @@ jobs:
           git push || echo "push skipped"
 
       - name: Chain next run (24/7 continuity)
-        if: steps.fresh.outputs.skip != 'true'
+        if: always() && (steps.loop.conclusion != 'failure')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
