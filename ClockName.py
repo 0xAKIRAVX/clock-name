@@ -69,7 +69,10 @@ BOT_HELP = (
     "   نمونه: /format ｜ {hhm}:{mmm}\n"
     "   متغیرها: {hhm} {mmm} فونت فانسی · {hh} {mm} عدد معمولی · {emoji} · {H12}\n"
     "/tz <منطقه> — تغییر منطقهٔ زمانی\n"
-    "   نمونه: /tz Asia/Tehran\n\n"
+    "   نمونه: /tz Asia/Tehran\n"
+    "/interval <N> — هر N دقیقه (۱ تا ۶۰)\n"
+    "   نمونه: /interval 1\n"
+    "/set — تیک فوری (همین الان ست کن)\n\n"
     "💡 ساعت هر دقیقه، هم‌زمان با دقیقهٔ گوشی آپدیت می‌شود."
 )
 
@@ -330,6 +333,19 @@ async def run_loop() -> None:
             pass
 
     BAPI = f"https://api.telegram.org/bot{bot_token}" if bot_token else None
+    bot_username = None
+    if BAPI:
+        try:
+            def _getme():
+                return rq.get(BAPI + "/getMe", timeout=(10, 30)).json()
+            d = await asyncio.to_thread(_getme)
+            if d.get("ok"):
+                bot_username = "@" + str(d["result"].get("username", ""))
+                print(f"🤖 بات مدیریت: {bot_username}", flush=True)
+            else:
+                print("⚠️ BOT_TOKEN نامعتبر است (getMe):", d.get("description"), flush=True)
+        except Exception as e:
+            print("⚠️ getMe شکست خورد:", e, flush=True)
 
     def bot_send_sync(text: str):
         try:
@@ -358,6 +374,7 @@ async def run_loop() -> None:
         await client(UpdateProfileRequest(last_name=value))
 
     async def handle(text: str) -> None:
+        nonlocal current_last  # برای /set
         t = text.strip()
         low = t.split("@")[0].lower()  # پشتیبانی از /cmd@botname
 
@@ -432,6 +449,29 @@ async def run_loop() -> None:
             commit_state("tz")
             await bot_send(f"✅ منطقهٔ زمانی جدید: {arg}")
 
+        elif low.startswith("/interval"):
+            arg = t[len("/interval"):].strip()
+            if not arg.isdigit() or not (1 <= int(arg) <= 60):
+                await bot_send("فاصلهٔ تیک (دقیقه، ۱ تا ۶۰):\n/interval 1")
+                return
+            state["interval"] = int(arg)
+            commit_state("interval")
+            await bot_send(f"✅ از تیک بعدی، ساعت هر {arg} دقیقه آپدیت می‌شود.")
+
+        elif low == "/set":
+            fmt = state.get("format") or cfg.get("format")
+            tz = state.get("tz") or cfg.get("timezone") or ""
+            val = render(make_now(tz), fmt)
+            try:
+                await set_last(val)
+                current_last = val
+                state["last_set"] = val
+                state["last_set_at"] = make_now(tz).strftime("%H:%M")
+                save_json(STATE_PATH, state)
+                await bot_send(f"✅ همین الان ست شد: {val}")
+            except Exception as e:
+                await bot_send(f"❌ ست فوری نشد: {e}")
+
         else:
             await bot_send("فرمان ناشناخته — /help را بفرست.")
 
@@ -442,7 +482,8 @@ async def run_loop() -> None:
         if not allowed_chat:
             print("⚠️ owner_chat_id در کانفیگ نیست — بات غیرفعال.", flush=True)
             return
-        print("🤖 بات مدیریت فعال — منتظر فرمان…", flush=True)
+        print(f"🤖 بات مدیریت فعال ({bot_username or 'توکن ناشناس'}) — منتظر فرمان…", flush=True)
+        bot_fail = {"n": 0}
         offset = None
         while not stop.is_set():
             params = {"timeout": 45, "allowed_updates": json.dumps(["message"])}
@@ -457,7 +498,13 @@ async def run_loop() -> None:
                 await asyncio.sleep(3)
                 continue
             if not d.get("ok"):
-                await asyncio.sleep(3)
+                bot_fail["n"] += 1
+                if bot_fail["n"] % 20 == 1:
+                    desc = str(d.get("description", ""))
+                    print(f"⚠️ getUpdates خطا (بار {bot_fail['n']}): {desc}", flush=True)
+                    if "409" in desc or "webhook" in desc.lower():
+                        print("⚠️ تداخل وب‌هوک! BOT_TOKEN باید باتِ جدا و بدون وب‌هوک باشد — فرمان‌ها نمی‌رسند.", flush=True)
+                await asyncio.sleep(10)
                 continue
             for u in d.get("result", []):
                 offset = u["update_id"] + 1
@@ -475,12 +522,12 @@ async def run_loop() -> None:
 
     async def clock_task():
         nonlocal current_last  # ← بدون این، انتساب پایین‌تر متغیر را محلی می‌کند و خواندنش UnboundLocalError می‌دهد
-        interval = max(1, int(cfg.get("interval_minutes", 1)))
         cap = max(1, int(cfg.get("max_daily_changes", 1500)))
         flood_until = None
         err_streak = 0
         while not stop.is_set():
             tz = state.get("tz") or cfg.get("timezone") or ""
+            interval = max(1, int(state.get("interval") or cfg.get("interval_minutes", 1)))
             now = make_now(tz)
             today = now.strftime("%Y-%m-%d")
             if state.get("date") != today:
@@ -556,7 +603,8 @@ async def run_loop() -> None:
         try_wakelock()
     print(f"👤 {me.first_name} — حالت حلقهٔ ۲۴/۷ | تیک هر {cfg.get('interval_minutes')} دقیقه "
           f"| عمر: {loop_minutes or '∞'} دقیقه | بات: {'فعال' if BAPI else 'خاموش'}", flush=True)
-    await bot_send("🤖 ClockName فعال شد — /help برای فرمان‌ها، /status برای وضعیت.")
+    await bot_send("🤖 ClockName فعال شد — /help برای فرمان‌ها، /status برای وضعیت."
+                   + (f"\nبات مدیریت: {bot_username}" if bot_username else ""))
 
     tasks = [asyncio.create_task(clock_task()), asyncio.create_task(bot_task())]
     if loop_minutes > 0:
