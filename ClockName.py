@@ -474,9 +474,11 @@ async def run_loop() -> None:
                     print("cmd error:", e, flush=True)
 
     async def clock_task():
+        nonlocal current_last  # ← بدون این، انتساب پایین‌تر متغیر را محلی می‌کند و خواندنش UnboundLocalError می‌دهد
         interval = max(1, int(cfg.get("interval_minutes", 1)))
         cap = max(1, int(cfg.get("max_daily_changes", 1500)))
         flood_until = None
+        err_streak = 0
         while not stop.is_set():
             tz = state.get("tz") or cfg.get("timezone") or ""
             now = make_now(tz)
@@ -512,6 +514,7 @@ async def run_loop() -> None:
             try:
                 await set_last(new_last)
                 current_last = new_last
+                err_streak = 0
                 state["count"] = int(state.get("count", 0)) + 1
                 state["last_set"] = new_last
                 state["last_set_at"] = target.strftime("%H:%M")
@@ -528,7 +531,10 @@ async def run_loop() -> None:
                 stop.set()
                 break
             except Exception as e:
+                err_streak += 1
                 print("❌", type(e).__name__, e, flush=True)
+                if err_streak == 3:
+                    await bot_send(f"⚠️ تیک ساعت ۳ بار پشت‌سرهم خطا خورد ({type(e).__name__}). تلاش ادامه دارد — /status برای جزئیات.")
                 try:
                     if not client.is_connected():
                         await client.disconnect()
